@@ -16,7 +16,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
 
-def load_env_file(path: Path) -> None:
+def load_env_file(path: Path, *, override: bool = False) -> None:
     if not path.is_file():
         return
     for raw in path.read_text(encoding="utf-8").splitlines():
@@ -30,8 +30,11 @@ def load_env_file(path: Path) -> None:
         val = val.strip()
         if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
             val = val[1:-1]
-        if key and key not in os.environ:
-            os.environ[key] = val
+        if not key:
+            continue
+        if not override and key in os.environ:
+            continue
+        os.environ[key] = val
 
 
 def fetch_marker(
@@ -264,25 +267,24 @@ def draw_orientation_letters_around_qr(
     height: float,
     font: str = "Helvetica-Bold",
     size: float = 32,
+    extra_edge_pt: float = 0.0,
 ) -> None:
     """B trên, A phải, C trái, D dưới QR; chân chữ hướng ra ngoài (mép tờ / mép ô)."""
     cx = left + width / 2
     cy = bottom + height / 2
-    # Khoảng hở từ mép ảnh QR tới chữ (pt) — lớn hơn để B/D không cắm vào ảnh
-    gap = max(10.0, size * 0.22)
-    # Chiều cao chữ in hoa ~ascender (Helvetica-Bold), tránh chồng mép ảnh
+    # Khoảng từ mép bbox ảnh marker tới chữ — lớn để A/B/C/D nằm rõ ngoài vùng marker (vạch đỏ)
     cap_h = size * 0.74
+    edge_clear = max(28.0, 16.0 + size * 0.52) + extra_edge_pt
     top_edge = bottom + height
 
-    # Dưới ảnh: mép trên chữ D nằm dưới mép dưới ảnh (baseline = đáy chữ, chữ mở lên trên)
-    d_baseline = bottom - gap - cap_h
+    # Dưới ảnh: toàn bộ chữ D nằm dưới mép dưới bbox marker
+    d_baseline = bottom - edge_clear - cap_h
 
-    # Trên ảnh: B xoay 180° — chân chữ hướng lên mép ngoài; baseline đặt đủ cao để thân chữ
-    # không tràn xuống trong bbox ảnh (sau xoay 180, phần chính nằm phía trên mép trên ảnh)
-    b_baseline = top_edge + gap + cap_h
+    # Trên ảnh: B xoay 180° — baseline đủ cao để không tràn vào bbox
+    b_baseline = top_edge + edge_clear + cap_h
 
-    # Trái/phải: bước ngang đủ để chữ không tràn vào ảnh (chữ đứng ~bằng cap_h theo trục ngang)
-    h_pad = gap + cap_h * 0.45
+    # Trái/phải: đẩy xa mép trái/phải (chữ xoay 90° cần bán kính ~cap)
+    h_pad = edge_clear + cap_h * 0.72
 
     # Trên QR: B — xoay 180° (chân ra phía mép trên tờ)
     pdf.saveState()
@@ -341,6 +343,7 @@ def build_pdf(
     *,
     show_orientation_letters: bool = True,
     orientation_letter_size: float = 32,
+    orientation_extra_edge_pt: float = 0.0,
 ) -> None:
     page_width, page_height = A4
     margin = 28
@@ -420,6 +423,7 @@ def build_pdf(
                     width=draw_w,
                     height=draw_h,
                     size=orientation_letter_size,
+                    extra_edge_pt=orientation_extra_edge_pt,
                 )
             if pupil_id_to_name is not None:
                 label = pupil_id_to_name.get(marker_id) or f"id = {marker_id}"
@@ -438,12 +442,17 @@ def build_pdf(
     pdf.save()
 
 
-def resolve_output_path(output_arg: str) -> Path:
+def resolve_output_path(output_arg: str, *, data_subdir: str = "data") -> Path:
+    """Đường dẫn tương đối được lưu trong thư mục con `data/` (cạnh main.py) theo mặc định."""
     script_dir = Path(__file__).resolve().parent
     output_path = Path(output_arg)
     if output_path.is_absolute():
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         return output_path
-    return script_dir / output_path
+    base = script_dir / data_subdir
+    out = (base / output_path).resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    return out
 
 
 def resolve_list_pupils_url(args: argparse.Namespace) -> str:
@@ -529,7 +538,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         default="aruco_4up.pdf",
-        help="Output file name/path. Relative paths are saved next to main.py.",
+        help="Tên file PDF. Đường dẫn tương đối lưu trong --data-dir (mặc định: thư mục data/).",
+    )
+    parser.add_argument(
+        "--data-dir",
+        default="data",
+        help="Thư mục con (trong folder chứa main.py) để ghi PDF; mặc định: data",
     )
     parser.add_argument(
         "--per-page",
@@ -612,14 +626,21 @@ def parse_args() -> argparse.Namespace:
         default=32,
         help="Font size for A/B/C/D orientation letters (default: 32).",
     )
+    parser.add_argument(
+        "--orientation-extra-edge",
+        type=float,
+        default=0.0,
+        help="Thêm khoảng cách (pt) giữa mép ảnh marker và chữ A/B/C/D (mặc định: 0).",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     _script_dir = Path(__file__).resolve().parent
-    load_env_file(_script_dir / ".env")
+    load_env_file(_script_dir / "data" / ".env")
+    load_env_file(_script_dir / ".env", override=True)
     args = parse_args()
-    output_path = resolve_output_path(args.output)
+    output_path = resolve_output_path(args.output, data_subdir=args.data_dir)
     pupil_id_to_name: dict[int, str] | None = None
     if not args.no_pupil_names:
         token = resolve_pupil_bearer_token(args)
@@ -644,4 +665,5 @@ if __name__ == "__main__":
         pupil_id_to_name=pupil_id_to_name,
         show_orientation_letters=not args.no_orientation_letters,
         orientation_letter_size=args.orientation_letter_size,
+        orientation_extra_edge_pt=args.orientation_extra_edge,
     )
