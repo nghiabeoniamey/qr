@@ -272,9 +272,10 @@ def draw_orientation_letters_around_qr(
     """B trên, A phải, C trái, D dưới QR; chân chữ hướng ra ngoài (mép tờ / mép ô)."""
     cx = left + width / 2
     cy = bottom + height / 2
-    # Khoảng từ mép bbox ảnh marker tới chữ — lớn để A/B/C/D nằm rõ ngoài vùng marker (vạch đỏ)
+    # Khoảng từ mép bbox ảnh marker tới chữ (gấp đôi bản cũ) — A/B/C/D nằm xa mép marker
     cap_h = size * 0.74
-    edge_clear = max(28.0, 16.0 + size * 0.52) + extra_edge_pt
+    base_edge = max(28.0, 16.0 + size * 0.52) + extra_edge_pt
+    edge_clear = base_edge * 2.0
     top_edge = bottom + height
 
     # Dưới ảnh: toàn bộ chữ D nằm dưới mép dưới bbox marker
