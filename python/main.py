@@ -1,6 +1,7 @@
 import argparse
 import io
 import time
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import urlopen
@@ -141,6 +142,14 @@ def build_pdf(
     pdf.save()
 
 
+def resolve_output_path(output_arg: str) -> Path:
+    script_dir = Path(__file__).resolve().parent
+    output_path = Path(output_arg)
+    if output_path.is_absolute():
+        return output_path
+    return script_dir / output_path
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate ArUco marker PDF (1/2/4 markers per A4)."
@@ -161,7 +170,9 @@ def parse_args() -> argparse.Namespace:
         help="Visual zoom factor inside each cell (default: 2.0).",
     )
     parser.add_argument(
-        "--output", default="aruco_4up.pdf", help="Output PDF path, e.g. aruco_4up.pdf"
+        "--output",
+        default="aruco_4up.pdf",
+        help="Output file name/path. Relative paths are saved next to main.py.",
     )
     parser.add_argument(
         "--per-page",
@@ -187,8 +198,9 @@ def parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = parse_args()
+    output_path = resolve_output_path(args.output)
     build_pdf(
-        output_path=args.output,
+        output_path=str(output_path),
         base_url=args.base_url,
         class_id=args.class_id,
         start_id=args.start_id,
