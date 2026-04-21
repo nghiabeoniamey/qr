@@ -1,0 +1,3 @@
+# Cài ??t: pip install -r requirements.txt
+Pillow>=10.0.0
+reportlab>=4.0.0
