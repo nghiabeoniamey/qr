@@ -167,13 +167,14 @@ def login_fetch_id_token(
     return str(token).strip()
 
 
-def fetch_pupil_id_to_name(
+def fetch_pupil_label_data(
     *,
     list_pupils_url: str,
     bearer_token: str,
     timeout: float,
     retries: int,
-) -> dict[int, str]:
+) -> dict[int, dict[str, object]]:
+    """Map pupil id (marker id) -> name, id, user_id từ list-pupils."""
     headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {bearer_token.strip()}",
@@ -183,7 +184,7 @@ def fetch_pupil_id_to_name(
     )
     if not payload.get("result"):
         raise RuntimeError(f"list-pupils trả về result=false: {payload!r}")
-    out: dict[int, str] = {}
+    out: dict[int, dict[str, object]] = {}
     for row in payload.get("data") or []:
         pid = row.get("id")
         if pid is None:
@@ -193,7 +194,12 @@ def fetch_pupil_id_to_name(
             continue
         key = int(pid)
         if key not in out:
-            out[key] = name
+            uid = row.get("user_id")
+            out[key] = {
+                "name": name,
+                "id": key,
+                "user_id": int(uid) if uid is not None else None,
+            }
     return out
 
 
@@ -246,9 +252,12 @@ def draw_label_below_cell(
     max_width: float,
     font: str = "Helvetica-Bold",
     base_size: float = 11.0,
+    sublines: list[str] | None = None,
+    sub_font: str = "Helvetica",
+    sub_size: float = 9.0,
 ) -> None:
     lines = _wrap_label_lines(text, font, base_size, max_width, max_lines=3)
-    if not lines:
+    if not lines and not sublines:
         return
     lh = base_size + 2
     py = y_bottom
@@ -256,6 +265,14 @@ def draw_label_below_cell(
     for line in lines:
         pdf.drawCentredString(cx, py, line)
         py += lh
+    if sublines:
+        sub_lh = sub_size + 1
+        pdf.setFont(sub_font, sub_size)
+        for line in sublines:
+            if not line:
+                continue
+            pdf.drawCentredString(cx, py, line)
+            py += sub_lh
 
 
 def draw_orientation_letters_around_qr(
@@ -340,7 +357,7 @@ def build_pdf(
     per_page: int,
     timeout: float,
     retries: int,
-    pupil_id_to_name: dict[int, str] | None,
+    pupil_label_data: dict[int, dict[str, object]] | None,
     *,
     show_orientation_letters: bool = True,
     orientation_letter_size: float = 32,
@@ -360,7 +377,7 @@ def build_pdf(
 
     cell_w = (page_width - 2 * margin - (cols - 1) * gap) / cols
     cell_h = (page_height - 2 * margin - title_space - (rows - 1) * gap) / rows
-    label_reserve = 52 if pupil_id_to_name is not None else 28
+    label_reserve = 76 if pupil_label_data is not None else 28
 
     pdf = canvas.Canvas(output_path, pagesize=A4)
     marker_ids = [start_id + i for i in range(count)]
@@ -426,16 +443,27 @@ def build_pdf(
                     size=orientation_letter_size,
                     extra_edge_pt=orientation_extra_edge_pt,
                 )
-            if pupil_id_to_name is not None:
-                label = pupil_id_to_name.get(marker_id) or f"id = {marker_id}"
+            if pupil_label_data is not None:
+                info = pupil_label_data.get(marker_id)
+                if info:
+                    label = str(info["name"])
+                    pid = info.get("id", marker_id)
+                    uid = info.get("user_id")
+                    uid_s = str(uid) if uid is not None else "—"
+                    sublines = [f"id: {pid}", f"user_id: {uid_s}"]
+                else:
+                    label = f"id = {marker_id}"
+                    sublines = None
             else:
                 label = f"id = {marker_id}"
+                sublines = None
             draw_label_below_cell(
                 pdf,
                 cx=x + cell_w / 2,
                 y_bottom=y + 6,
                 text=label,
                 max_width=cell_w - 12,
+                sublines=sublines,
             )
 
         pdf.showPage()
@@ -642,11 +670,11 @@ if __name__ == "__main__":
     load_env_file(_script_dir / ".env", override=True)
     args = parse_args()
     output_path = resolve_output_path(args.output, data_subdir=args.data_dir)
-    pupil_id_to_name: dict[int, str] | None = None
+    pupil_label_data: dict[int, dict[str, object]] | None = None
     if not args.no_pupil_names:
         token = resolve_pupil_bearer_token(args)
         list_url = resolve_list_pupils_url(args)
-        pupil_id_to_name = fetch_pupil_id_to_name(
+        pupil_label_data = fetch_pupil_label_data(
             list_pupils_url=list_url,
             bearer_token=token,
             timeout=args.timeout,
@@ -663,7 +691,7 @@ if __name__ == "__main__":
         per_page=args.per_page,
         timeout=args.timeout,
         retries=args.retries,
-        pupil_id_to_name=pupil_id_to_name,
+        pupil_label_data=pupil_label_data,
         show_orientation_letters=not args.no_orientation_letters,
         orientation_letter_size=args.orientation_letter_size,
         orientation_extra_edge_pt=args.orientation_extra_edge,
