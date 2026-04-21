@@ -262,48 +262,55 @@ def draw_orientation_letters_around_qr(
     bottom: float,
     width: float,
     height: float,
-    cell_bottom_y: float,
-    label_reserve: float,
     font: str = "Helvetica-Bold",
     size: float = 32,
 ) -> None:
     """B trên, A phải, C trái, D dưới QR; chân chữ hướng ra ngoài (mép tờ / mép ô)."""
     cx = left + width / 2
     cy = bottom + height / 2
-    inset = size * 0.42
-    name_strip_top = cell_bottom_y + label_reserve
+    # Khoảng hở từ mép ảnh QR tới chữ (pt) — lớn hơn để B/D không cắm vào ảnh
+    gap = max(10.0, size * 0.22)
+    # Chiều cao chữ in hoa ~ascender (Helvetica-Bold), tránh chồng mép ảnh
+    cap_h = size * 0.74
+    top_edge = bottom + height
 
-    # Trên QR: B — xoay 180° để chân chữ hướng lên mép tờ
+    # Dưới ảnh: mép trên chữ D nằm dưới mép dưới ảnh (baseline = đáy chữ, chữ mở lên trên)
+    d_baseline = bottom - gap - cap_h
+
+    # Trên ảnh: B xoay 180° — chân chữ hướng lên mép ngoài; baseline đặt đủ cao để thân chữ
+    # không tràn xuống trong bbox ảnh (sau xoay 180, phần chính nằm phía trên mép trên ảnh)
+    b_baseline = top_edge + gap + cap_h
+
+    # Trái/phải: bước ngang đủ để chữ không tràn vào ảnh (chữ đứng ~bằng cap_h theo trục ngang)
+    h_pad = gap + cap_h * 0.45
+
+    # Trên QR: B — xoay 180° (chân ra phía mép trên tờ)
     pdf.saveState()
-    pdf.translate(cx, bottom + height + inset)
+    pdf.translate(cx, b_baseline)
     pdf.rotate(180)
     pdf.setFont(font, size)
     pdf.drawCentredString(0, 0, "B")
     pdf.restoreState()
 
-    # Dưới QR: D — chân hướng xuống mép dưới; tránh chồng lên vùng tên
-    d_y = bottom - inset
-    min_d_y = name_strip_top + size * 0.35 + 4
-    if d_y < min_d_y:
-        d_y = min_d_y
+    # Dưới QR: D — chân xuống mép ngoài
     pdf.saveState()
-    pdf.translate(cx, d_y)
+    pdf.translate(cx, d_baseline)
     pdf.setFont(font, size)
     pdf.drawCentredString(0, 0, "D")
     pdf.restoreState()
 
-    # Phải QR: A — xoay -90° chân hướng ra phải
+    # Phải QR: A — đổi chiều xoay so với bản cũ (+90° thay vì -90°)
     pdf.saveState()
-    pdf.translate(left + width + inset, cy)
-    pdf.rotate(-90)
+    pdf.translate(left + width + h_pad, cy)
+    pdf.rotate(90)
     pdf.setFont(font, size)
     pdf.drawCentredString(0, 0, "A")
     pdf.restoreState()
 
-    # Trái QR: C — xoay 90° chân hướng ra trái
+    # Trái QR: C — đổi chiều xoay so với bản cũ (-90° thay vì +90°)
     pdf.saveState()
-    pdf.translate(left - inset, cy)
-    pdf.rotate(90)
+    pdf.translate(left - h_pad, cy)
+    pdf.rotate(-90)
     pdf.setFont(font, size)
     pdf.drawCentredString(0, 0, "C")
     pdf.restoreState()
@@ -412,8 +419,6 @@ def build_pdf(
                     bottom=draw_y,
                     width=draw_w,
                     height=draw_h,
-                    cell_bottom_y=y,
-                    label_reserve=label_reserve,
                     size=orientation_letter_size,
                 )
             if pupil_id_to_name is not None:
